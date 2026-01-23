@@ -107,6 +107,7 @@ RUN mkdir -p models/loras models/checkpoints models/vae models/unet models/clip 
 # Download checkpoints/vae/unet/clip models to include in image based on model type
 RUN if [ "$MODEL_TYPE" = "ztex" ]; then \
       echo "ztex"; \
+      echo "done"; \
     fi
 
 # Stage 3: Final image

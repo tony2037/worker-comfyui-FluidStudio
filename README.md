@@ -10,6 +10,21 @@
 
 ---
 
+> **📌 FluidStudio-Qwen Branch**
+>
+> You are viewing the **FluidStudio-Qwen** branch, a production-optimized fork of worker-comfyui v5.3.0.
+>
+> **Key Differences from Upstream:**
+> - **Default Model Type**: `ztex` (no pre-downloaded models, network volume mandatory)
+> - **Build Time**: 5-10 minutes (vs 30-60 minutes for model-included variants)
+> - **Image Size**: ~5-7 GB (vs 15-30 GB for model-included variants)
+> - **Test Suite**: Removed (production deployment focus)
+> - **Architecture**: Network volume-based model management (required)
+>
+> **📖 See [FluidStudio-Qwen Guide](docs/fluidstudio-qwen.md) for comprehensive documentation.**
+
+---
+
 This project allows you to run ComfyUI workflows as a serverless API endpoint on the RunPod platform. Submit workflows via API calls and receive generated images as base64 strings or S3 URLs.
 
 ## Table of Contents
@@ -35,13 +50,38 @@ This project allows you to run ComfyUI workflows as a serverless API endpoint on
 
 These images are available on Docker Hub under `runpod/worker-comfyui`:
 
+- **`runpod/worker-comfyui:<version>-ztex`**: **FluidStudio custom** - No models included, network volume mandatory (~5-7 GB). **Default for this branch.**
 - **`runpod/worker-comfyui:<version>-base`**: Clean ComfyUI install with no models.
 - **`runpod/worker-comfyui:<version>-flux1-schnell`**: Includes checkpoint, text encoders, and VAE for [FLUX.1 schnell](https://huggingface.co/black-forest-labs/FLUX.1-schnell).
 - **`runpod/worker-comfyui:<version>-flux1-dev`**: Includes checkpoint, text encoders, and VAE for [FLUX.1 dev](https://huggingface.co/black-forest-labs/FLUX.1-dev).
 - **`runpod/worker-comfyui:<version>-sdxl`**: Includes checkpoint and VAEs for [Stable Diffusion XL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0).
 - **`runpod/worker-comfyui:<version>-sd3`**: Includes checkpoint for [Stable Diffusion 3 medium](https://huggingface.co/stabilityai/stable-diffusion-3-medium).
 
-Replace `<version>` with the current release tag, check the [releases page](https://github.com/runpod-workers/worker-comfyui/releases) for the latest version.
+Replace `<version>` with the current release tag (e.g., `5.3.0`), check the [releases page](https://github.com/runpod-workers/worker-comfyui/releases) for the latest version.
+
+### ztex Variant (FluidStudio-Qwen Branch)
+
+The `ztex` variant is the **recommended image for this branch** and has unique characteristics:
+
+**What makes it different:**
+- 🚫 **No pre-downloaded models** (empty base image)
+- ⚠️ **Network volume MANDATORY** (not optional)
+- ⚡ **Fast builds**: 5-10 minutes (no model downloads)
+- 💾 **Small size**: ~5-7 GB (vs 15-30 GB for model variants)
+- 🔄 **Flexible**: Update models without rebuilding images
+
+**When to use ztex:**
+- Models change frequently
+- Sharing models across endpoints
+- Fast deployment cycles needed
+- Docker image size/cost matters
+
+**When to use other variants:**
+- Models are static (sdxl, sd3, flux1-dev)
+- Want simplest deployment (no network volume setup)
+- Cold start latency critical (models pre-loaded)
+
+**Deployment:** See [FluidStudio-Qwen Deployment Guide](docs/deployment.md#fluidstudio-qwen-ztex-deployment) for step-by-step instructions.
 
 ## API Specification
 
@@ -181,9 +221,55 @@ To get the correct `workflow` JSON for the API:
 
 ## Further Documentation
 
-- **[Deployment Guide](docs/deployment.md):** Detailed steps for deploying on RunPod.
+### 🆕 FluidStudio-Qwen Branch
+- **[FluidStudio-Qwen Guide](docs/fluidstudio-qwen.md):** **START HERE** - Comprehensive guide to this branch including ztex model type, differences from upstream, deployment, troubleshooting, and migration.
+
+### Technical Reference
+- **[Technical Specification (spec.md)](docs/spec.md):** Complete technical reference including architecture, data flows, API specifications, error handling, and performance characteristics. **Updated with FluidStudio-Qwen details.**
+- **[Architecture Overview](docs/architecture.md):** High-level system design, component diagrams, and key design decisions. **Includes FluidStudio-Qwen section.**
+- **[Documentation Index](docs/README.md):** Complete guide to all documentation with use-case-based navigation.
+
+### Operational Guides
+- **[Deployment Guide](docs/deployment.md):** Detailed steps for deploying on RunPod. **Includes dedicated ztex deployment section.**
 - **[Configuration Guide](docs/configuration.md):** Full list of environment variables (including S3 setup).
+- **[Network Volumes Guide](docs/network-volumes.md):** Using network volumes for model storage. **Critical for ztex deployments.**
+
+### Customization & Development
 - **[Customization Guide](docs/customization.md):** Adding custom models and nodes (Network Volumes, Docker builds).
-- **[Development Guide](docs/development.md):** Setting up a local environment for development & testing
+- **[Development Guide](docs/development.md):** Setting up a local environment for development. **Note: Test suite removed in this branch.**
+
+### Process Documentation
 - **[CI/CD Guide](docs/ci-cd.md):** Information about the automated Docker build and publish workflows.
-- **[Acknowledgments](docs/acknowledgments.md):** Credits and thanks
+- **[Acknowledgments](docs/acknowledgments.md):** Credits and thanks.
+
+## Differences from Upstream
+
+This branch (FluidStudio-Qwen) differs from the upstream worker-comfyui in several key ways:
+
+### 1. ztex Model Type (Primary Innovation)
+- **No pre-downloaded models** in Docker image
+- **Network volume mandatory** for all models
+- **Fast builds** (5-10 min vs 30-60 min)
+- **Small images** (~5-7 GB vs 15-30 GB)
+
+### 2. Test Suite Removed
+- Removed `tests/`, `test_resources/`, `.runpod/tests.json`
+- Production deployment focus
+- Manual testing recommended (see [Development Guide](docs/development.md))
+
+### 3. Directory Structure Changes
+- Added explicit `models/loras/` configuration
+- Added explicit `models/unet/` for FLUX/SD3 support
+- Updated `src/extra_model_paths.yaml`
+
+### 4. Build Simplification
+- No `wget` model downloads in Dockerfile
+- No `HUGGINGFACE_ACCESS_TOKEN` required during build
+- Cleaner, faster CI/CD pipeline
+
+### 5. Updated Documentation
+- New comprehensive [FluidStudio-Qwen Guide](docs/fluidstudio-qwen.md)
+- Updated all docs with branch-specific information
+- Added troubleshooting for ztex deployments
+
+**For detailed information**, see the [FluidStudio-Qwen Guide](docs/fluidstudio-qwen.md).

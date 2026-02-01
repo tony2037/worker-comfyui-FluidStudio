@@ -2,6 +2,10 @@
 
 This guide covers methods for adding your own models, custom nodes, and static input files into a custom `worker-comfyui`.
 
+> **📌 FluidStudio-Qwen Branch Note**
+>
+> This branch uses the `ztex` model type by default, which contains **NO pre-downloaded models**. Network volumes are the recommended approach for this branch. See [Customizing the ztex Model Type](#customizing-the-ztex-model-type) for branch-specific guidance.
+
 > [!TIP]
 >
 > **Looking for the easiest way to deploy custom workflows?**
@@ -110,3 +114,233 @@ Using a Network Volume is primarily useful if you want to manage **models** sepa
 >
 > - When a Network Volume is correctly attached, ComfyUI running inside the worker container will automatically detect and load models from the standard directories (`/runpod-volume/models/...`) within that volume (for serverless workers). For directory mapping details and troubleshooting, see [Network Volumes & Model Paths](network-volumes.md).
 > - This method is **not suitable for installing custom nodes**; use the Custom Dockerfile method for that.
+
+---
+
+## Customizing the ztex Model Type
+
+The `ztex` model type (default for FluidStudio-Qwen branch) is designed for **network volume-based model management**. Here are several approaches for customizing it:
+
+### Approach 1: Network Volume Only (Recommended)
+
+**Use case:** Maximum flexibility, fastest builds
+
+**How it works:**
+- Use the stock `ztex` image (no customization)
+- Store ALL models on network volume
+- Update models without rebuilding images
+
+**Setup:**
+1. Use image: `runpod/worker-comfyui:5.3.0-ztex`
+2. Create network volume
+3. Upload models to `/runpod-volume/models/<type>/`
+4. Attach network volume to endpoint
+
+**Benefits:**
+- ✅ Fast builds (5-10 minutes)
+- ✅ Update models anytime (no rebuild)
+- ✅ Share models across endpoints
+- ✅ Small Docker image (~5-7 GB)
+
+**Trade-offs:**
+- ⚠️ Network volume mandatory
+- ⚠️ Slightly slower first request (model loading from network)
+
+**See:** [FluidStudio-Qwen Deployment Guide](deployment.md#fluidstudio-qwen-ztex-deployment)
+
+### Approach 2: Hybrid (Some Baked, Some Network Volume)
+
+**Use case:** Fast startup for common models, flexibility for custom models
+
+**How it works:**
+- Customize ztex Dockerfile to include frequently-used base models
+- Use network volume for custom/experimental models
+- ComfyUI searches both locations
+
+**Dockerfile example:**
+```dockerfile
+# Start from ztex base
+FROM runpod/worker-comfyui:5.3.0-ztex
+
+# Switch to ComfyUI directory
+WORKDIR /comfyui
+
+# Download frequently-used base models
+RUN comfy model download \
+  --url https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors \
+  --relative-path models/checkpoints \
+  --filename v1-5-pruned-emaonly.safetensors
+
+# Download VAE
+RUN comfy model download \
+  --url https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors \
+  --relative-path models/vae \
+  --filename vae-ft-mse.safetensors
+
+# Custom models will come from network volume
+```
+
+**Build and deploy:**
+```bash
+# Build custom image
+docker build --platform linux/amd64 -t my-registry/worker-comfyui:custom-ztex .
+
+# Push to registry
+docker push my-registry/worker-comfyui:custom-ztex
+
+# Deploy with network volume for custom models
+# Baked models available immediately, network volume models also work
+```
+
+**Benefits:**
+- ✅ Faster first startup (base models pre-loaded)
+- ✅ Still flexible (network volume for custom models)
+- ✅ Best of both worlds
+
+**Trade-offs:**
+- ⚠️ Larger image (add ~5-15 GB per model)
+- ⚠️ Longer build times (add ~5-30 min per model)
+- ⚠️ Need rebuild to change baked models
+
+### Approach 3: Custom Model Type (Fully Baked)
+
+**Use case:** Specific model set, simplest deployment, no network volume
+
+**How it works:**
+- Create new MODEL_TYPE variant with all models baked
+- Deploy without network volume
+- Similar to upstream sdxl/sd3/flux1-dev variants
+
+**Dockerfile example:**
+```dockerfile
+# Build from source to customize MODEL_TYPE
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 AS base
+# ... (copy base setup from main Dockerfile)
+
+# Downloader stage with custom MODEL_TYPE
+FROM base AS downloader
+ARG HUGGINGFACE_ACCESS_TOKEN
+
+# Create directories
+RUN mkdir -p /comfyui/models/checkpoints /comfyui/models/loras /comfyui/models/vae
+
+# Download all models for "my-custom" type
+WORKDIR /comfyui
+RUN comfy model download \
+  --url https://huggingface.co/... \
+  --relative-path models/checkpoints \
+  --filename my-model.safetensors
+
+RUN comfy model download \
+  --url https://huggingface.co/... \
+  --relative-path models/loras \
+  --filename my-lora.safetensors
+
+# Final stage
+FROM base AS final
+COPY --from=downloader /comfyui/models /comfyui/models
+```
+
+**Or modify existing Dockerfile:**
+```dockerfile
+# In Dockerfile, modify lines 108-111:
+RUN if [ "$MODEL_TYPE" = "my-custom" ]; then \
+      comfy model download --url https://... --relative-path models/checkpoints --filename ...; \
+      comfy model download --url https://... --relative-path models/loras --filename ...; \
+    fi
+```
+
+**Build:**
+```bash
+docker build \
+  --build-arg MODEL_TYPE=my-custom \
+  --build-arg HUGGINGFACE_ACCESS_TOKEN=<token> \
+  --platform linux/amd64 \
+  -t my-registry/worker-comfyui:my-custom \
+  .
+```
+
+**Benefits:**
+- ✅ Self-contained (no network volume needed)
+- ✅ Faster startup (models pre-loaded)
+- ✅ Reproducible (same models every deployment)
+
+**Trade-offs:**
+- ⚠️ Large image (30-50 GB with models)
+- ⚠️ Long build times (30-60 minutes)
+- ⚠️ Need rebuild to update models
+- ⚠️ Less flexible
+
+### Approach 4: Add Custom Nodes to ztex
+
+**Use case:** Need specific ComfyUI custom nodes with network volume models
+
+**Dockerfile example:**
+```dockerfile
+# Start from ztex base
+FROM runpod/worker-comfyui:5.3.0-ztex
+
+# Install custom nodes
+RUN comfy-node-install \
+  https://github.com/ltdrdata/ComfyUI-Manager.git \
+  https://github.com/WASasquatch/was-node-suite-comfyui.git \
+  https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
+
+# Models still come from network volume
+```
+
+**Benefits:**
+- ✅ Custom nodes included
+- ✅ Models still flexible (network volume)
+- ✅ Reasonably fast builds
+
+**Trade-offs:**
+- ⚠️ Slightly larger image (add ~100-500 MB per node package)
+- ⚠️ Still requires network volume for models
+
+### Decision Matrix
+
+| Approach | Build Time | Image Size | Network Volume | Flexibility | Best For |
+|----------|------------|------------|----------------|-------------|----------|
+| **Network Volume Only** | 5-10 min | ~5-7 GB | Mandatory | Highest | Production, frequent model changes |
+| **Hybrid** | 15-30 min | ~15-25 GB | Optional | High | Common base + custom models |
+| **Fully Baked** | 30-60 min | ~30-50 GB | Not needed | Low | Fixed model set, simple deployment |
+| **Custom Nodes + Network Volume** | 10-15 min | ~7-10 GB | Mandatory | High | Need specific nodes + flexible models |
+
+### Migration Example: From sdxl to ztex
+
+**Before (sdxl variant):**
+```bash
+# Image: runpod/worker-comfyui:5.3.0-sdxl
+# Models: Baked into image
+# Network volume: Not used
+```
+
+**After (ztex with network volume):**
+```bash
+# 1. Extract SDXL models from image or download:
+#    - sd_xl_base_1.0.safetensors
+#    - sd_xl_vae.safetensors
+
+# 2. Upload to network volume:
+/runpod-volume/models/
+├── checkpoints/
+│   └── sd_xl_base_1.0.safetensors
+└── vae/
+    └── sdxl_vae.safetensors
+
+# 3. Update endpoint:
+#    - Image: runpod/worker-comfyui:5.3.0-ztex
+#    - Attach network volume
+#    - Test with NETWORK_VOLUME_DEBUG=true
+
+# 4. Verify models detected:
+#    Check logs for diagnostics
+```
+
+**Benefits of migration:**
+- Can now add more models without rebuilding
+- Faster deployments (smaller image)
+- Share models across endpoints
+
+For more details, see the [FluidStudio-Qwen Guide](fluidstudio-qwen.md).

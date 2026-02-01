@@ -2,7 +2,11 @@
 
 This guide covers setting up your local environment for developing and testing the `worker-comfyui`.
 
-Both tests will use the data from [`test_input.json`](../test_input.json), so make your changes in there to test different workflow inputs properly.
+> **📌 FluidStudio-Qwen Branch Note**
+>
+> The test suite has been **removed** from this branch (commits: `3349260`, `aeb6bdf`) to focus on production deployment. Manual testing is now required. See [Testing Your Changes](#testing-your-changes) below for the recommended workflow.
+
+For manual testing, you can use the data from [`test_input.json`](../test_input.json) as a reference for workflow inputs.
 
 ## Setup
 
@@ -69,27 +73,141 @@ After completing these steps, you should be able to run Docker commands, includi
 > - It is generally recommended to run the Docker commands (`docker build`, `docker-compose up`) from within the WSL environment terminal for consistency with the Linux-based container environment.
 > - Accessing `localhost` URLs (like the local API or ComfyUI) from your Windows browser while the service runs inside WSL usually works, but network configurations can sometimes cause issues.
 
-## Testing the RunPod Handler
+## Testing Your Changes
 
-Unit tests are provided to verify the core logic of the `handler.py`.
+> **⚠️ Test Suite Removed**
+>
+> The automated test suite (`tests/`, `test_resources/`, `.runpod/tests.json`) has been removed from the FluidStudio-Qwen branch (commits: `3349260`, `aeb6bdf`). This branch is focused on **production deployment**, not active development.
+>
+> **Why tests were removed:**
+> - Core functionality tested in [upstream repository](https://github.com/runpod-workers/worker-comfyui)
+> - Production deployments require end-to-end testing regardless
+> - Reduces maintenance burden for deployment-focused fork
+> - Simplifies codebase
 
-- **Run all tests**:
-  ```bash
-  python -m unittest discover tests/
-  ```
-- **Run a specific test file**:
-  ```bash
-  python -m unittest tests.test_handler
-  ```
-- **Run a specific test case or method**:
+### Recommended Manual Testing Workflow
 
-  ```bash
-  # Example: Run all tests in the TestRunpodWorkerComfy class
-  python -m unittest tests.test_handler.TestRunpodWorkerComfy
+Since automated tests are not available, follow this manual testing workflow:
 
-  # Example: Run a single test method
-  python -m unittest tests.test_handler.TestRunpodWorkerComfy.test_s3_upload
-  ```
+#### 1. Local Testing with Docker Compose
+
+Test changes locally before deploying to RunPod:
+
+1. **Build and start services:**
+   ```bash
+   docker-compose up --build
+   ```
+
+2. **Access ComfyUI UI** (optional, for workflow creation):
+   - Open http://localhost:8188 in browser
+   - Create or modify workflows
+   - Export workflow JSON
+
+3. **Test handler directly:**
+   ```bash
+   # Send request to local worker
+   curl -X POST http://localhost:8000/runsync \
+     -H "Content-Type: application/json" \
+     -d @test_input.json
+   ```
+
+4. **Verify output:**
+   - Check response status
+   - Verify images array
+   - Check for errors array
+
+#### 2. Testing Checklist
+
+Before deploying changes to production, verify:
+
+- [ ] **ComfyUI server starts successfully**
+  - Check logs for startup errors
+  - Verify port 8188 accessible
+
+- [ ] **Models detected** (if using network volume):
+  - Enable `NETWORK_VOLUME_DEBUG=true`
+  - Check diagnostics output
+  - Verify model paths correct
+
+- [ ] **Simple workflow executes** (txt2img):
+  - Create basic text-to-image workflow
+  - Verify image generation
+  - Check output format (base64/S3)
+
+- [ ] **Complex workflow executes**:
+  - Test with ControlNet (if applicable)
+  - Test with LoRA (if applicable)
+  - Test multi-step workflows
+
+- [ ] **Image upload works** (img2img):
+  - Test with base64 input images
+  - Verify image processing
+  - Check output correctness
+
+- [ ] **S3 upload works** (if configured):
+  - Set S3 environment variables
+  - Verify S3 URL in response
+  - Check presigned URL accessible
+
+- [ ] **Error handling**:
+  - Test invalid workflow (missing node)
+  - Test missing model reference
+  - Verify error messages clear
+
+- [ ] **WebSocket reconnection** (long workflow):
+  - Test workflow > 30 seconds
+  - Check WebSocket stability
+  - Verify reconnection works
+
+#### 3. Staging Endpoint Testing
+
+Before production deployment:
+
+1. **Create staging endpoint:**
+   - Separate from production
+   - Use cheaper GPU (RTX 3060) for tests
+   - Same configuration as production
+
+2. **Run representative workflows:**
+   - Test all workflow types you use
+   - Verify outputs match expectations
+   - Check performance (execution time)
+
+3. **Monitor logs:**
+   - Check for warnings/errors
+   - Verify no unexpected behavior
+   - Monitor resource usage
+
+4. **Load testing** (optional):
+   - Send multiple concurrent requests
+   - Verify scaling works
+   - Check for race conditions
+
+#### 4. Production Deployment
+
+Once staging validated:
+
+1. **Deploy to production endpoint**
+2. **Monitor logs closely** for first few hours
+3. **Keep staging endpoint** for future changes
+4. **Document any issues** encountered
+
+### Testing Resources
+
+**Sample workflows:**
+- Reference upstream `test_resources/workflows/` (if available in git history)
+- Export workflows from ComfyUI UI
+- Use `test_input.json` as template
+
+**Upstream tests** (for reference):
+- View test suite in upstream repository: https://github.com/runpod-workers/worker-comfyui/tree/main/tests
+- Useful for understanding expected behavior
+- Can manually replicate test scenarios
+
+**Debugging tools:**
+- `NETWORK_VOLUME_DEBUG=true` - Model detection diagnostics
+- `COMFY_LOG_LEVEL=DEBUG` - Verbose logging
+- `REFRESH_WORKER=true` - Fresh worker per job (debugging)
 
 ## Local API Simulation (using Docker Compose)
 
